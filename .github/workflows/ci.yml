@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Ivanov
+name: CI/CD Pipeline - Makarenko
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     
     env:
-      TELEGRAM_CHAT_ID: "ВАШ_CHAT_ID"
+      TELEGRAM_CHAT_ID: "800338121"
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
     
     steps:
