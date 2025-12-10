@@ -18,5 +18,25 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Run script
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black pytest
+
+    - name: Run linter (flake8)
+      run: |
+        # Проверка критических ошибок
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Общая проверка стиля (с предупреждениями)
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Check code format with black
+      run: |
+        black --check .
+
+    - name: Run tests with pytest
+      run: |
+        pytest test_app.py -v
+
+    - name: Run original script
       run: python main.py
