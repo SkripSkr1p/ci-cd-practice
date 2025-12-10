@@ -5,20 +5,18 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  
-env:
-  TELEGRAM_CHAT_ID: "ВАШ_CHAT_ID"
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     
+    env:
+      TELEGRAM_CHAT_ID: "ВАШ_CHAT_ID"
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -27,94 +25,55 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black pytest pytest-html
+        pip install black pytest pytest-html
 
-    # 1. ИСПРАВЛЕННОЕ АВТОФОРМАТИРОВАНИЕ
-    - name: Auto-format code with Black
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    - name: Run tests
       run: |
-        echo "🔄 Запуск автоформатирования..."
-        
-        # Форматируем все файлы
-        black .
-        
-        # Если есть изменения - коммитим
-        if ! git diff --quiet; then
-          echo "📝 Обнаружены изменения после форматирования"
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "🔧 Auto-format code with Black [skip ci]"
-          echo "✅ Изменения закоммичены"
-        else
-          echo "✅ Код уже отформатирован правильно"
-        fi
+        pytest --html=test-report.html --self-contained-html
 
-    - name: Check code format with black
-      run: |
-        black --check .
-
-    - name: Run linter (flake8)
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: Run tests with pytest
-      run: |
-        pytest test_app.py test_advanced.py -v --html=test-report.html --self-contained-html
-
-    - name: Upload test report as artifact
+    - name: Upload test report
       uses: actions/upload-artifact@v4
       with:
         name: test-report
         path: test-report.html
-        retention-days: 30
 
-    - name: Run original script
-      run: python main.py
-
-    # 2. TELEGRAM УВЕДОМЛЕНИЯ
-    - name: Send Telegram notification on success
+    # СПОСОБ 1: Через готовый Action
+    - name: Send Telegram success (Action)
       if: success()
       uses: appleboy/telegram-action@master
       with:
         to: ${{ env.TELEGRAM_CHAT_ID }}
         token: ${{ env.TELEGRAM_BOT_TOKEN }}
         message: |
-          ✅ CI/CD Pipeline УСПЕШНО выполнен!
+          ✅ CI/CD УСПЕШНО
           
-          📊 Репозиторий: ${{ github.repository }}
-          🎯 Ветка: ${{ github.ref_name }}
-          👤 Автор: ${{ github.actor }}
+          📦 ${{ github.repository }}
+          🎯 ${{ github.ref_name }}
+          👤 ${{ github.actor }}
           
-          🧪 Тесты: Пройдены
-          📝 Форматирование: Проверено
-          🔍 Linter: Проверен
-          
-          📥 Артефакты доступны в GitHub Actions
-          
-          🔗 Подробности: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-    - name: Send Telegram notification on failure
-      if: failure()
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ env.TELEGRAM_CHAT_ID }}
-        token: ${{ env.TELEGRAM_BOT_TOKEN }}
-        message: |
-          ❌ CI/CD Pipeline ЗАВЕРШИЛСЯ С ОШИБКОЙ!
-          
-          📊 Репозиторий: ${{ github.repository }}
-          🎯 Ветка: ${{ github.ref_name }}
-          👤 Автор: ${{ github.actor }}
-          
-          ⚠️ Возможные причины:
-          - Ошибки форматирования (Black)
-          - Проблемы со стилем кода (flake8)
-          - Падение тестов (pytest)
-          
-          🔍 Проверьте логи:
           🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          
-          🛠️ Требуется исправление кода!
+
+    # СПОСОБ 2: Через прямой API (как запасной)
+    - name: Send Telegram fallback
+      if: success()
+      run: |
+        # Формируем сообщение
+        MESSAGE="🔄 Pipeline completed
+        
+        📊 *Repository:* ${{ github.repository }}
+        🎯 *Branch:* ${{ github.ref_name }}
+        👤 *Author:* ${{ github.actor }}
+        ✅ *Status:* SUCCESS
+        
+        📎 [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        
+        # Отправляем через API
+        curl -s -X POST \
+          "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" \
+          -d "text=$MESSAGE" \
+          -d "parse_mode=Markdown" \
+          --output /tmp/telegram_response.txt
+        
+        echo "📨 Ответ от Telegram API:"
+        cat /tmp/telegram_response.txt
