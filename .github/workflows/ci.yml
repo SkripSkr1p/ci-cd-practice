@@ -1,17 +1,24 @@
-name: CI Check - Makarenko  
+name: CI/CD Pipeline - Makarenko  # Замените на вашу фамилию
+
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  
+env:
+  TELEGRAM_CHAT_ID: "800338121"  # Замените на ваш ID
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Полная история для автоформатирования
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -21,22 +28,89 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 black pytest
+        pip install flake8 black pytest pytest-html
+
+    # 1. АВТОФОРМАТИРОВАНИЕ КОДА (только для push в main)
+    - name: Auto-format code with Black (push only)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        echo "Running auto-formatting..."
+        black . --check
+        if [ $? -ne 0 ]; then
+          echo "Code needs formatting. Running black..."
+          black .
+          echo "Committing formatted code..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Auto-format code with Black [skip ci]" || echo "No changes to commit"
+          git push origin main || echo "No changes to push"
+        else
+          echo "Code is already formatted correctly."
+        fi
 
     - name: Run linter (flake8)
       run: |
         # Проверка критических ошибок
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Общая проверка стиля (с предупреждениями)
+        # Общая проверка стиля
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Check code format with black
       run: |
         black --check .
 
+    # 2. ТЕСТИРОВАНИЕ С СОХРАНЕНИЕМ ОТЧЕТА
     - name: Run tests with pytest
       run: |
-        pytest test_app.py -v
+        pytest test_app.py -v --html=test-report.html --self-contained-html
+
+    # 3. СОХРАНЕНИЕ АРТЕФАКТОВ
+    - name: Upload test report as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-report
+        path: test-report.html
+        retention-days: 30
 
     - name: Run original script
       run: python main.py
+
+    # 4. ОТПРАВКА РЕЗУЛЬТАТОВ В TELEGRAM
+    - name: Send Telegram notification on success
+      if: success()
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ env.TELEGRAM_CHAT_ID }}
+        token: ${{ env.TELEGRAM_BOT_TOKEN }}
+        message: |
+          ✅ CI/CD Pipeline УСПЕШНО выполнен!
+          
+          📊 Репозиторий: ${{ github.repository }}
+          🎯 Ветка: ${{ github.ref_name }}
+          👤 Автор: ${{ github.actor }}
+          📅 Время: ${{ github.event.head_commit.timestamp }}
+          
+          📝 Коммит: ${{ github.event.head_commit.message }}
+          
+          🔗 Подробности: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Все проверки пройдены успешно! 🎉
+
+    - name: Send Telegram notification on failure
+      if: failure()
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ env.TELEGRAM_CHAT_ID }}
+        token: ${{ env.TELEGRAM_BOT_TOKEN }}
+        message: |
+          ❌ CI/CD Pipeline ЗАВЕРШИЛСЯ С ОШИБКОЙ!
+          
+          📊 Репозиторий: ${{ github.repository }}
+          🎯 Ветка: ${{ github.ref_name }}
+          👤 Автор: ${{ github.actor }}
+          
+          ⚠️ Пожалуйста, проверьте ошибки в логах:
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Требуется исправление кода!
